@@ -34,9 +34,10 @@
     <div class="detected"><span>Tipus de dia (automàtic)</span><b id="day-detected">—</b></div>
     <div class="boolfield"><span class="bool-label">És lectiu?</span><div class="yesno" role="group" aria-label="Dia lectiu"><button data-school="yes" class="on" aria-pressed="true">Sí</button><button data-school="no" aria-pressed="false">No</button></div></div>
     <div class="boolfield"><span class="bool-label">És festiu?</span><div class="yesno" role="group" aria-label="Dia festiu"><button data-festiu="no" class="on" aria-pressed="true">No</button><button data-festiu="yes" aria-pressed="false">Sí</button></div></div>
+    <div class="boolfield"><span class="bool-label">Busos convencionals?</span><div class="yesno" role="group" aria-label="Inclou busos convencionals"><button data-conventional="no" class="on" aria-pressed="true">No</button><button data-conventional="yes" aria-pressed="false">Sí</button></div></div>
     <div class="field holiday-type" id="holiday-type-wrap"><label class="label" for="holiday-type">Tipus de festiu</label><select id="holiday-type"><option value="general">General (Catalunya)</option><option value="local">Local de Barcelona</option></select></div>
   </div>
-  <p class="helper">Selecciona manualment si és lectiu i si és festiu. Es consideren lectius els dies feiners per defecte, però els dissabtes i diumenges tenen els seus propis horaris.</p>
+  <p class="helper">Selecciona manualment si és lectiu i si és festiu. Per defecte només es mostren els busos exprés; activa «Busos convencionals» per incloure els que fan totes les parades. Es consideren lectius els dies feiners per defecte, però els dissabtes i diumenges tenen els seus propis horaris.</p>
 </section>
 <section>
   <div class="summary"><div><h2 id="search-title">Resultats</h2><p id="day-info">—</p></div><div class="day-nav"><button id="prev-day">← Dia anterior</button><button id="next-day">Dia següent →</button></div></div>
@@ -86,13 +87,14 @@ function busAvailable(t,iso,school='yes'){
   // Les expedicions marcades '(7)' a la tornada són Montserrat Park, no lectius.
   return true;
 }
-function tripsOn(iso,{direction='out',transport='all',school='yes',festiu='no',holidayKind='general'}={}){
+function tripsOn(iso,{direction='out',transport='all',school='yes',festiu='no',holidayKind='general',conventional='no'}={}){
   const category=categoryForDate(iso,festiu==='yes',holidayKind);
   const list=[];
   if(transport!=='train'){
     const found=new Map();
     for(const t of BUS_SCHEDULES){
       if(t.dir!==direction||t.day!==category||!busAvailable(t,iso,school))continue;
+      if(t.kind==='normal'&&conventional!=='yes')continue;
       const key=`${t.from}|${t.to}|${t.kind}`;
       if(!found.has(key)||t.notes.includes('(1)'))found.set(key,t);
     }
@@ -111,8 +113,8 @@ function tripsOn(iso,{direction='out',transport='all',school='yes',festiu='no',h
   }
   return list;
 }
-function queryTrips({date,direction='out',transport='all',mode='dep',time='17:00',school='yes',festiu='no',holidayKind='general'}){
-  let criteria={direction,transport,school,festiu,holidayKind};
+function queryTrips({date,direction='out',transport='all',mode='dep',time='17:00',school='yes',festiu='no',holidayKind='general',conventional='no'}){
+  let criteria={direction,transport,school,festiu,holidayKind,conventional};
   const fromToday=tripsOn(date,criteria).map(t=>enrich(t,0,date));
   let found=fromToday;
   if(mode==='arr'){
@@ -145,7 +147,7 @@ if(typeof window!=='undefined')window.HorarisLogic={BUS_SCHEDULES,FGC_SCHEDULES,
 if(typeof document!=='undefined'){
  const $=id=>document.getElementById(id);
  const fields={date:$('date'),time:$('time'),origin:$('origin'),dest:$('dest'),holiday:$('holiday-type')};
- let transport='all',mode='dep',school='yes',festiu='no',selection=0,view={list:[],index:0};
+ let transport='all',mode='dep',school='yes',festiu='no',conventional='no',selection=0,view={list:[],index:0};
  const safe=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const isTrain=t=>t.medium==='train';
  const badgeName=t=>isTrain(t)?'Tren · FGC R6':t.kind==='normal'?'Bus · Convencional':`Bus · Exprés ${t.kind}`;
@@ -174,7 +176,7 @@ if(typeof document!=='undefined'){
  $('date-label').textContent=mode==='dep'?'Data de sortida':'Data d’arribada';
  $('holiday-type-wrap').classList.toggle('show',festiu==='yes');
  if(!/^2026-\d\d-\d\d$/.test(iso)){$('day-info').textContent='Només es disposa de calendari de festius per a 2026.';$('results').innerHTML='<div class="empty">Selecciona una data de 2026.</div>';$('notices').innerHTML='';return;}
- view=queryTrips({date:iso,direction:fields.origin.value,transport,mode,time:hr,school,festiu,holidayKind:fields.holiday.value});selection=view.index;
+ view=queryTrips({date:iso,direction:fields.origin.value,transport,mode,time:hr,school,festiu,conventional,holidayKind:fields.holiday.value});selection=view.index;
  $('search-title').textContent=(transport==='train'?'Trens':transport==='bus'?'Autobusos':'Busos i trens')+(mode==='dep'?` amb sortida a partir de les ${hr}`:` amb arribada fins a les ${hr}`);
  $('day-info').textContent=dateObj(iso).toLocaleDateString('ca-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+TYPE_NAMES[view.category]+' · '+view.list.length+' serveis';
  const notices=[];
@@ -195,6 +197,7 @@ if(typeof document!=='undefined'){
  for(const kind of ['dep','arr'])$('mode-'+kind).addEventListener('click',()=>{mode=kind;for(const v of ['dep','arr']){$('mode-'+v).classList.toggle('on',v===kind);$('mode-'+v).setAttribute('aria-pressed',String(v===kind))}refresh()});
  document.querySelectorAll('[data-school]').forEach(el=>el.addEventListener('click',()=>{school=el.dataset.school;document.querySelectorAll('[data-school]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el))});refresh()}));
  document.querySelectorAll('[data-festiu]').forEach(el=>el.addEventListener('click',()=>{festiu=el.dataset.festiu;document.querySelectorAll('[data-festiu]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el))});refresh()}));
+ document.querySelectorAll('[data-conventional]').forEach(el=>el.addEventListener('click',()=>{conventional=el.dataset.conventional;document.querySelectorAll('[data-conventional]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el))});refresh()}));
  function stepDate(delta){const next=shiftDate(fields.date.value,delta);if(next.slice(0,4)!=='2026')return;fields.date.value=next;refresh()}
  $('prev-day').addEventListener('click',()=>stepDate(-1));$('next-day').addEventListener('click',()=>stepDate(1));
  let d=new Date();fields.date.value=d.getFullYear()===2026?isoDate(d):'2026-10-09';fields.time.value=`${pad(d.getHours())}:${pad(d.getMinutes())}`;refresh();
